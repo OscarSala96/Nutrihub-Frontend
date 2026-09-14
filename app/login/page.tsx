@@ -3,31 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-
-// Mock de usuarios basados en tu esquema SQL
-const MOCK_USERS = {
-  nutri: {
-    email: 'nutri@pro.com',
-    password: '123',
-    user: {
-      id: 'uuid-nutri-1',
-      nombre: 'Dr. Carlos Nutri',
-      email: 'nutri@pro.com',
-      role: 'NUTRICIONISTA'
-    }
-  },
-  paciente: {
-    email: 'paciente@test.com',
-    password: '123',
-    user: {
-      id: 'uuid-paciente-1',
-      nombre: 'Juan Pérez',
-      email: 'paciente@test.com',
-      role: 'PACIENTE',
-      idNutri: 'uuid-nutri-1' // Relacionado con el nutri de arriba
-    }
-  }
-};
+import {
+  apiRequest,
+  saveAuthSession,
+  type AuthResponse,
+} from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -41,31 +21,70 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
 
-    // --- LÓGICA MOCKEADA ---
-    setTimeout(() => {
-      let foundUser = null;
+    try {
+      const auth = await apiRequest<AuthResponse>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
 
-      if (email === MOCK_USERS.nutri.email && password === MOCK_USERS.nutri.password) {
-        foundUser = MOCK_USERS.nutri.user;
-      } else if (email === MOCK_USERS.paciente.email && password === MOCK_USERS.paciente.password) {
-        foundUser = MOCK_USERS.paciente.user;
+      if (!auth.session?.access_token) {
+        throw new Error(
+          'Supabase no devolvió una sesión. Comprueba tu cuenta y la confirmación del email.',
+        );
       }
 
-      if (foundUser) {
-        localStorage.setItem('user', JSON.stringify(foundUser));
-        window.dispatchEvent(new Event('user:login'));
+      const backendUser = auth.user ?? {};
+      let role: 'NUTRICIONISTA' | 'PACIENTE' = 'NUTRICIONISTA';
+      let profile: Record<string, unknown> = backendUser;
+      const authHeaders = {
+        Authorization: `Bearer ${auth.session.access_token}`,
+      };
 
-        // Redirección por Rol
-        if (foundUser.role === 'NUTRICIONISTA') {
-          router.push('/dashboard/admin');
-        } else {
-          router.push('/dashboard/user');
-        }
-      } else {
-        setError('Credenciales incorrectas. Prueba con nutri@pro.com / 123');
-        setLoading(false);
+      try {
+        profile = await apiRequest<Record<string, unknown>>('/patient/me', {
+          headers: authHeaders,
+        });
+        role = 'PACIENTE';
+      } catch {
+        const nutritionistProfile = await apiRequest<Record<string, unknown>>(
+          '/auth/me',
+          { headers: authHeaders },
+        );
+        profile = nutritionistProfile;
       }
-    }, 1000); // Simulamos latencia de red
+
+      const profileMetadata =
+        profile.userMetadata && typeof profile.userMetadata === 'object'
+          ? (profile.userMetadata as { nombre?: string })
+          : {};
+      const backendMetadata =
+        backendUser.user_metadata && typeof backendUser.user_metadata === 'object'
+          ? (backendUser.user_metadata as { nombre?: string })
+          : {};
+      const user = {
+        ...backendUser,
+        ...profile,
+        id: String(profile.id ?? backendUser.id ?? ''),
+        email: String(profile.email ?? backendUser.email ?? email),
+        nombre: String(
+          profileMetadata.nombre ??
+            backendMetadata.nombre ??
+            profile.nombre ??
+            email.split('@')[0],
+        ),
+        role,
+      };
+      saveAuthSession(auth, user);
+      router.push(role === 'NUTRICIONISTA' ? '/dashboard/admin' : '/dashboard/user');
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'No se pudo iniciar sesión.',
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -92,9 +111,6 @@ export default function LoginPage() {
               <p className="text-muted-foreground text-base">
                 Introduce tus datos para acceder a tu panel de NutriHub.
               </p>
-              {/*<div className="mt-4 p-3 bg-muted rounded-xl text-[10px] text-muted-foreground font-mono">
-                💡 Mock: <b>nutri@pro.com</b> o <b>paciente@test.com</b> (Pass: 123)
-              </div>*/}
             </div>
 
             {error && (

@@ -3,6 +3,11 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import {
+  clearAuthSession,
+  getUserDisplayName,
+  type StoredUser,
+} from '@/lib/api';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +58,7 @@ export default function Sidebar({ role }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isDark, setIsDark] = useState(false);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<StoredUser | null>(null);
   
   // Badges (ejemplo de alertas de registros pendientes o nuevos mensajes)
   const [alertsCount, setAlertsCount] = useState(0);
@@ -62,15 +67,25 @@ export default function Sidebar({ role }: SidebarProps) {
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
-    if (savedUser) setUser(JSON.parse(savedUser));
+    if (savedUser) {
+      queueMicrotask(() => {
+        try {
+          setUser(JSON.parse(savedUser) as StoredUser);
+        } catch {
+          setUser(null);
+        }
+      });
+    }
     
     const savedTheme = document.cookie.split('; ').find(row => row.startsWith('theme='))?.split('=')[1];
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const initialTheme = savedTheme === 'dark' || (!savedTheme && prefersDark);
     
-    setIsDark(initialTheme);
     document.documentElement.classList.toggle('dark', initialTheme);
-    setMounted(true);
+    queueMicrotask(() => {
+      setIsDark(initialTheme);
+      setMounted(true);
+    });
 
     const checkResizing = () => { if (window.innerWidth < 1024) setCollapsed(true); };
     window.addEventListener('resize', checkResizing);
@@ -85,7 +100,7 @@ export default function Sidebar({ role }: SidebarProps) {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    clearAuthSession();
     router.push('/login');
   };
 
@@ -192,17 +207,17 @@ const checkActive = (href: string) => {
           <Link href="/dashboard/profile" onClick={() => setMobileOpen(false)} className="block w-full mb-2">
             <div className={`flex items-center gap-3 p-2 rounded-2xl hover:bg-muted/70 transition-all ${!showText ? 'justify-center p-0' : ''}`}>
                <div className={`rounded-full overflow-hidden shrink-0 border-2 border-border ${!showText ? 'w-10 h-10' : 'w-10 h-10'}`}>
-                 {user?.avatarUrl ? (
+                 {typeof user?.avatarUrl === 'string' ? (
                    <img src={user.avatarUrl} alt="Perfil" className="w-full h-full object-cover" />
                  ) : (
                    <div className="w-full h-full bg-[#10b981]/10 flex items-center justify-center">
-                     <span className="text-[#10b981] text-xs font-black">{user?.name?.charAt(0) || 'O'}</span>
+                     <span className="text-[#10b981] text-xs font-black">{getUserDisplayName(user).charAt(0) || 'O'}</span>
                    </div>
                  )}
                </div>
                {showText && (
                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-bold truncate text-foreground">{user?.name || 'Óscar Sala'}</p>
+                    <p className="text-[13px] font-bold truncate text-foreground">{getUserDisplayName(user)}</p>
                     <span className={`text-[8px] uppercase font-black px-1.5 py-0.5 rounded border ${roleColors[role]}`}>
                       {roleLabels[role]}
                     </span>

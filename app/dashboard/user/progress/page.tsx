@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Sidebar from '@/components/Sidebar';
 import PageHeader from '@/components/Pageheader';
+import { apiRequest } from '@/lib/api';
 
 const HISTORY = [
   { date: 'Hace 1 mes',     label: 'Semana 1', weight: 78.2, waist: 88, chest: 98, hip: 97, photos: { front: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?q=80&w=800&auto=format&fit=crop', left: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=400&auto=format&fit=crop', right: 'https://images.unsplash.com/photo-1526506118085-60ce8714f8c5?q=80&w=400&auto=format&fit=crop' } },
@@ -44,6 +45,54 @@ export default function ProgressPage() {
   const [selectedAngle, setSelectedAngle]     = useState<AngleKey>('front');
   const [photos, setPhotos]         = useState<Record<AngleKey, string | null>>({ front: null, left: null, right: null });
   const [dragOver, setDragOver]     = useState<AngleKey | null>(null);
+  const [history, setHistory]       = useState(HISTORY);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState('');
+
+  useEffect(() => {
+    apiRequest<Array<Record<string, unknown>>>('/patient/me/progress')
+      .then((items) => {
+        const mapped = items.map((item, index) => {
+          const observations =
+            item.observaciones && typeof item.observaciones === 'object'
+              ? (item.observaciones as Record<string, unknown>)
+              : {};
+          const measurements =
+            observations.medidas && typeof observations.medidas === 'object'
+              ? (observations.medidas as Record<string, string>)
+              : {};
+          const wellbeing =
+            observations.bienestar && typeof observations.bienestar === 'object'
+              ? (observations.bienestar as Record<string, number>)
+              : {};
+          return {
+            date: new Date(String(item.fecha)).toLocaleDateString('es-ES'),
+            label: `Registro ${items.length - index}`,
+            weight: Number(item.peso),
+            waist: Number(measurements.waist || 0),
+            chest: Number(measurements.chest || 0),
+            hip: Number(measurements.hip || 0),
+            photos: { front: '', left: '', right: '' },
+            energy: wellbeing.energy || 0,
+            sleep: wellbeing.sleep || 0,
+            hunger: wellbeing.hunger || 0,
+          };
+        });
+        if (mapped.length > 0) {
+          setHistory(mapped as typeof HISTORY);
+        } else {
+          setHistory([]);
+        }
+      })
+      .catch((requestError: unknown) => {
+        setError(
+          requestError instanceof Error
+            ? `${requestError.message} Mostrando datos de ejemplo.`
+            : 'No se pudo cargar el historial. Mostrando datos de ejemplo.',
+        );
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleFile = (angle: AngleKey, file: File) => {
     const reader = new FileReader();
@@ -51,13 +100,58 @@ export default function ProgressPage() {
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = () => {
-    setSubmitted(true);
-    setTimeout(() => setSubmitted(false), 3000);
+  const handleSubmit = async () => {
+    const weight = Number(values.weight);
+    if (!weight || weight <= 0) {
+      setError('Introduce un peso válido antes de enviar el registro.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const created = await apiRequest<Record<string, unknown>>(
+        '/patient/me/progress',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            peso: weight,
+            fecha: new Date().toISOString(),
+            observaciones: {
+              medidas: values,
+              bienestar: ratings,
+              notas: notes,
+            },
+          }),
+        },
+      );
+      const createdRecord = {
+        date: new Date(String(created.fecha)).toLocaleDateString('es-ES'),
+        label: 'Registro actual',
+        weight: Number(created.peso),
+        waist: Number(values.waist || 0),
+        chest: Number(values.chest || 0),
+        hip: Number(values.hip || 0),
+        photos: { front: '', left: '', right: '' },
+        energy: ratings.energy || 0,
+        sleep: ratings.sleep || 0,
+        hunger: ratings.hunger || 0,
+      };
+      setHistory((current) => [createdRecord, ...current] as typeof HISTORY);
+      setSubmitted(true);
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'No se pudo enviar el registro.',
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const lastWeight  = HISTORY[HISTORY.length - 1].weight;
-  const firstWeight = HISTORY[0].weight;
+  const lastWeight  = history[history.length - 1]?.weight || 0;
+  const firstWeight = history[0]?.weight || 0;
   const currentWeight = parseFloat(values['weight'] || '0');
   const delta = currentWeight ? (currentWeight - lastWeight).toFixed(1) : null;
 
@@ -74,6 +168,17 @@ export default function ProgressPage() {
         />
 
         <div className="p-6 lg:p-10 max-w-[1400px] mx-auto w-full space-y-6">
+
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-2xl px-6 py-4 text-sm font-bold text-destructive">
+              {error}
+            </div>
+          )}
+          {loading && (
+            <div className="bg-card border border-border rounded-2xl px-6 py-4 text-sm text-muted-foreground">
+              Sincronizando progreso...
+            </div>
+          )}
 
           {/* Banner éxito */}
           {submitted && (
@@ -251,10 +356,11 @@ export default function ProgressPage() {
 
               <button
                 onClick={handleSubmit}
-                className="w-full bg-[#10b981] hover:bg-[#059669] text-white font-black rounded-2xl py-5 transition-all shadow-xl shadow-[#10b981]/20 active:scale-[0.98] uppercase tracking-widest text-xs flex items-center justify-center gap-2"
+                disabled={loading}
+                className="w-full bg-[#10b981] hover:bg-[#059669] disabled:opacity-50 text-white font-black rounded-2xl py-5 transition-all shadow-xl shadow-[#10b981]/20 active:scale-[0.98] uppercase tracking-widest text-xs flex items-center justify-center gap-2"
               >
-                <i className="bi bi-send-fill"></i>
-                Enviar registro semanal
+                {loading ? <i className="bi bi-arrow-repeat animate-spin"></i> : <i className="bi bi-send-fill"></i>}
+                {loading ? 'Guardando...' : 'Enviar registro semanal'}
               </button>
             </div>
 
@@ -408,12 +514,12 @@ export default function ProgressPage() {
                 <p className="text-xs text-muted-foreground mt-0.5">Haz clic en un registro para ver los detalles y comparar ángulos</p>
               </div>
               <span className="text-[10px] font-black uppercase tracking-widest bg-[#10b981]/10 text-[#10b981] px-3 py-1.5 rounded-full">
-                {HISTORY.length} registros
+                {history.length} registros
               </span>
             </div>
 
             <div className="space-y-4">
-              {HISTORY.map((item, i) => (
+              {history.map((item, i) => (
                 <div
                   key={i}
                   className={`border-2 rounded-3xl overflow-hidden transition-all cursor-pointer ${

@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import PageHeader from '@/components/Pageheader';
+import { apiRequest } from '@/lib/api';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement,
   LineElement, BarElement, Title, Tooltip, Legend, Filler
@@ -13,7 +15,7 @@ import { Line, Bar } from 'react-chartjs-2';
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
 // Datos del paciente Juan Pérez (simulado, normalmente vendrían de params.id)
-const PATIENT = {
+const FALLBACK_PATIENT = {
   id: '1', name: 'Juan Pérez', email: 'juan.perez@email.com',
   phone: '+34 611 223 344', age: 34, gender: 'Hombre',
   objective: 'Pérdida de Grasa', planType: 'Premium', status: 'Activo',
@@ -22,7 +24,7 @@ const PATIENT = {
 
 const WEEKS = ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4', 'Sem 5', 'Sem 6 (Nuevo)'];
 
-const RECORDS = [
+const FALLBACK_RECORDS = [
   { week: 'Sem 1', date: 'Hace 5 sem.', weight: 78.2, waist: 88, chest: 98, hip: 97, arm: 34, thigh: 57, energy: 3, sleep: 2, hunger: 3, adherence: '50–75%', notes: 'Me cuesta adaptarme a las nuevas cantidades, sobre todo a mediodía.', isNew: false, photos: { front: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?q=80&w=400&auto=format&fit=crop', left: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=400&auto=format&fit=crop', right: 'https://images.unsplash.com/photo-1526506118085-60ce8714f8c5?q=80&w=400&auto=format&fit=crop' } },
   { week: 'Sem 2', date: 'Hace 4 sem.', weight: 77.1, waist: 86, chest: 97, hip: 96, arm: 34, thigh: 56, energy: 3, sleep: 3, hunger: 3, adherence: '75–90%', notes: 'Esta semana mejor. He podido seguir el plan casi al 100%.', isNew: false, photos: { front: 'https://images.unsplash.com/photo-1526506118085-60ce8714f8c5?q=80&w=400&auto=format&fit=crop', left: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?q=80&w=400&auto=format&fit=crop', right: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=400&auto=format&fit=crop' } },
   { week: 'Sem 3', date: 'Hace 3 sem.', weight: 76.5, waist: 85, chest: 96, hip: 95, arm: 33, thigh: 56, energy: 4, sleep: 4, hunger: 4, adherence: '+90%',   notes: 'Muy buena semana. Me siento con más energía y menos hinchado.', isNew: false, photos: { front: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=400&auto=format&fit=crop', left: 'https://images.unsplash.com/photo-1526506118085-60ce8714f8c5?q=80&w=400&auto=format&fit=crop', right: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?q=80&w=400&auto=format&fit=crop' } },
@@ -43,13 +45,88 @@ const ADHERENCE_COLOR: Record<string, string> = {
 };
 
 export default function PatientProgressPage() {
-  const [selectedWeek, setSelectedWeek]   = useState(RECORDS.length - 1);
+  const params = useParams<{ id: string }>();
+  const [patient, setPatient] = useState(FALLBACK_PATIENT);
+  const [records, setRecords] = useState(FALLBACK_RECORDS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedWeek, setSelectedWeek]   = useState(FALLBACK_RECORDS.length - 1);
   const [selectedAngle, setSelectedAngle] = useState<'front' | 'left' | 'right'>('front');
   const [nutriNote, setNutriNote]         = useState('');
   const [noteSent, setNoteSent]           = useState(false);
 
-  const record = RECORDS[selectedWeek];
-  const first  = RECORDS[0];
+  useEffect(() => {
+    if (!params.id) return;
+
+    Promise.all([
+      apiRequest<Record<string, unknown>>(`/patients/${params.id}`),
+      apiRequest<Array<Record<string, unknown>>>(
+        `/patients/${params.id}/progress`,
+      ),
+    ])
+      .then(([patientData, progressData]) => {
+        setPatient((current) => ({
+          ...current,
+          id: String(patientData.idPaciente ?? current.id),
+          name: String(patientData.nombre ?? current.name),
+          email: String(patientData.email ?? ''),
+          phone: String(patientData.telefono ?? ''),
+          age: Number(patientData.edad ?? 0),
+          startDate: patientData.createdAt
+            ? new Date(String(patientData.createdAt)).toLocaleDateString('es-ES')
+            : current.startDate,
+        }));
+
+        const mapped = progressData.map((item, index) => {
+          const observations =
+            item.observaciones && typeof item.observaciones === 'object'
+              ? (item.observaciones as Record<string, unknown>)
+              : {};
+          const measures =
+            observations.medidas && typeof observations.medidas === 'object'
+              ? (observations.medidas as Record<string, unknown>)
+              : {};
+          const wellbeing =
+            observations.bienestar && typeof observations.bienestar === 'object'
+              ? (observations.bienestar as Record<string, number>)
+              : {};
+          return {
+            week: `Registro ${progressData.length - index}`,
+            date: new Date(String(item.fecha)).toLocaleDateString('es-ES'),
+            weight: Number(item.peso),
+            waist: Number(measures.waist ?? 0),
+            chest: Number(measures.chest ?? 0),
+            hip: Number(measures.hip ?? 0),
+            arm: Number(measures.arm ?? 0),
+            thigh: Number(measures.thigh ?? 0),
+            energy: wellbeing.energy ?? 0,
+            sleep: wellbeing.sleep ?? 0,
+            hunger: wellbeing.hunger ?? 0,
+            adherence: String(observations.adherence ?? '—'),
+            notes: String(observations.notas ?? ''),
+            isNew: index === 0,
+            photos: { front: '', left: '', right: '' },
+          };
+        });
+        if (mapped.length > 0) {
+          setRecords(mapped as typeof FALLBACK_RECORDS);
+          setSelectedWeek(0);
+        } else {
+          setError('Este paciente todavía no tiene registros. Mostrando datos de ejemplo.');
+        }
+      })
+      .catch((requestError: unknown) => {
+        setError(
+          requestError instanceof Error
+            ? `${requestError.message} Mostrando datos de ejemplo.`
+            : 'No se pudo cargar el progreso. Mostrando datos de ejemplo.',
+        );
+      })
+      .finally(() => setLoading(false));
+  }, [params.id]);
+
+  const record = records[selectedWeek] ?? records[0];
+  const first  = records[0];
   const weightLost = (first.weight - record.weight).toFixed(1);
   const waistLost  = first.waist - record.waist;
 
@@ -57,22 +134,22 @@ export default function PatientProgressPage() {
   const chartTick  = '#888888';
 
   const weightChartData = {
-    labels: RECORDS.map(r => r.week),
+    labels: records.map(r => r.week),
     datasets: [{
       label: 'Peso (kg)',
-      data: RECORDS.map(r => r.weight),
+      data: records.map(r => r.weight),
       borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)',
-      tension: 0.4, fill: true, pointBackgroundColor: RECORDS.map((r, i) => i === selectedWeek ? '#10b981' : '#10b981'),
-      pointRadius: RECORDS.map((r, i) => i === selectedWeek ? 7 : 4),
+      tension: 0.4, fill: true, pointBackgroundColor: records.map((r, i) => i === selectedWeek ? '#10b981' : '#10b981'),
+      pointRadius: records.map((r, i) => i === selectedWeek ? 7 : 4),
     }]
   };
 
   const metricsChartData = {
-    labels: RECORDS.map(r => r.week),
+    labels: records.map(r => r.week),
     datasets: [
-      { label: 'Cintura', data: RECORDS.map(r => r.waist), borderColor: '#f59e0b', backgroundColor: 'transparent', tension: 0.4, pointBackgroundColor: '#f59e0b', pointRadius: 4 },
-      { label: 'Pecho',   data: RECORDS.map(r => r.chest), borderColor: '#3b82f6', backgroundColor: 'transparent', tension: 0.4, pointBackgroundColor: '#3b82f6', pointRadius: 4 },
-      { label: 'Cadera',  data: RECORDS.map(r => r.hip),   borderColor: '#a855f7', backgroundColor: 'transparent', tension: 0.4, pointBackgroundColor: '#a855f7', pointRadius: 4 },
+      { label: 'Cintura', data: records.map(r => r.waist), borderColor: '#f59e0b', backgroundColor: 'transparent', tension: 0.4, pointBackgroundColor: '#f59e0b', pointRadius: 4 },
+      { label: 'Pecho',   data: records.map(r => r.chest), borderColor: '#3b82f6', backgroundColor: 'transparent', tension: 0.4, pointBackgroundColor: '#3b82f6', pointRadius: 4 },
+      { label: 'Cadera',  data: records.map(r => r.hip),   borderColor: '#a855f7', backgroundColor: 'transparent', tension: 0.4, pointBackgroundColor: '#a855f7', pointRadius: 4 },
     ]
   };
 
@@ -80,7 +157,7 @@ export default function PatientProgressPage() {
     responsive: true, maintainAspectRatio: false,
     plugins: { legend: { position: 'top' as const, labels: { color: chartTick, font: { weight: 'bold' as const, size: 11 }, usePointStyle: true, padding: 12 } } },
     scales: {
-      y: { grid: { color: chartGrid }, ticks: { color: chartTick, callback: (v: any) => `${v} ${yLabel}` } },
+      y: { grid: { color: chartGrid }, ticks: { color: chartTick, callback: (v: string | number) => `${v} ${yLabel}` } },
       x: { grid: { display: false }, ticks: { color: chartTick, font: { weight: 'bold' as const } } }
     }
   });
@@ -96,19 +173,30 @@ export default function PatientProgressPage() {
 
       <main className="flex-1 overflow-auto flex flex-col">
         <PageHeader
-          title={`Progreso · ${PATIENT.name}`}
-          description={`${PATIENT.objective} · Plan ${PATIENT.planType} · Desde ${PATIENT.startDate}`}
+          title={`Progreso · ${patient.name}`}
+          description={`${patient.objective} · Plan ${patient.planType} · Desde ${patient.startDate}`}
           icon={<i className="bi bi-graph-up-arrow" />}
           backUrl='/dashboard/admin/patients'
         />
 
         <div className="p-6 lg:p-10 max-w-[1400px] mx-auto w-full space-y-6">
 
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-2xl px-5 py-4 text-sm font-bold text-destructive">
+              {error}
+            </div>
+          )}
+          {loading && (
+            <div className="bg-card border border-border rounded-2xl px-5 py-4 text-sm text-muted-foreground">
+              Cargando progreso...
+            </div>
+          )}
+
           {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
             <Link href="/dashboard/admin/patients" className="hover:text-[#10b981] transition-colors">Pacientes</Link>
             <i className="bi bi-chevron-right text-[10px]"></i>
-            <span className="text-foreground font-black">{PATIENT.name}</span>
+            <span className="text-foreground font-black">{patient.name}</span>
           </div>
 
           {/* KPIs */}
@@ -159,7 +247,7 @@ export default function PatientProgressPage() {
             {/* Lista semanas */}
             <div className="bg-card border border-border rounded-[2.5rem] p-6 space-y-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-4">Registros Semanales</p>
-              {RECORDS.map((r, i) => (
+              {records.map((r, i) => (
                 <button key={i} onClick={() => setSelectedWeek(i)}
                   className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all border-2 ${
                     selectedWeek === i ? 'border-[#10b981] bg-[#10b981]/10' : 'border-border hover:border-[#10b981]/30 bg-muted/20'
@@ -222,7 +310,7 @@ export default function PatientProgressPage() {
                 {record.notes && (
                   <div className="bg-muted/30 border border-border rounded-2xl p-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2">Notas del Paciente</p>
-                    <p className="text-sm text-foreground leading-relaxed">"{record.notes}"</p>
+                    <p className="text-sm text-foreground leading-relaxed">&ldquo;{record.notes}&rdquo;</p>
                   </div>
                 )}
               </div>

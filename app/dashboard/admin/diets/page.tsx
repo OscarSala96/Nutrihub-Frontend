@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from '@/components/Sidebar';
 import PageHeader from '@/components/Pageheader';
 import { ESPANA_MOCK_FOODS, FoodResult } from '@/components/mockFoods';
+import { apiRequest } from '@/lib/api';
 
 // --- Interfaces ---
 interface Patient {
@@ -12,6 +13,13 @@ interface Patient {
   name: string;
   weight: number;
   goalKcal: number;
+}
+
+interface DietRecord {
+  idDieta: string;
+  fechaInicio: string;
+  fechaFin: string;
+  descripcion: Record<string, unknown>;
 }
 
 type MealType = 'Desayuno' | 'Comida' | 'Cena';
@@ -36,61 +44,97 @@ export default function DietCreatorAdvanced() {
   // --- Estados de Animación ---
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
-
-  const patients: Patient[] = useMemo(() => [
-    { id: '1', name: 'Óscar Sala', weight: 75, goalKcal: 2200 },
-    { id: '2', name: 'María García', weight: 62, goalKcal: 1800 },
-    { id: '3', name: 'Carlos Ruiz', weight: 90, goalKcal: 2800 },
-    { id: '4', name: 'Juan Pérez', weight: 85, goalKcal: 1900 },
-    { id: '5', name: 'Roberto Jara', weight: 70, goalKcal: 2100 },
-    { id: '7', name: 'Sergio Torres', weight: 78, goalKcal: 3000 },
-    { id: '8', name: 'Lucía Fernández', weight: 64, goalKcal: 1550 },
-    { id: '9', name: 'Diego Delgado', weight: 92, goalKcal: 2400 },
-    { id: '10', name: 'Clara Ortiz', weight: 58, goalKcal: 1750 },
-    { id: '11', name: 'Javier Marín', weight: 81, goalKcal: 2900 },
-    { id: '12', name: 'Patricia Silva', weight: 66, goalKcal: 1850 },
-    { id: '14', name: 'Marta Vicente', weight: 55, goalKcal: 2300 },
-    { id: '15', name: 'Alejandro Ramos', weight: 79, goalKcal: 2150 }
-  ], []);
-
-  const [selectedPatient, setSelectedPatient] = useState<Patient>(patients[0]);
-
-  const [allDiets, setAllDiets] = useState<AllDiets>({
-    '1': { Desayuno: [[]], Comida: [[]], Cena: [[]] },
-    '2': { Desayuno: [[]], Comida: [[]], Cena: [[]] },
-    '3': { Desayuno: [[]], Comida: [[]], Cena: [[]] },
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<Patient>({
+    id: '',
+    name: 'Selecciona un paciente',
+    weight: 0,
+    goalKcal: 2000,
   });
+  const [savedDiets, setSavedDiets] = useState<DietRecord[]>([]);
+  const [loadingPatients, setLoadingPatients] = useState(true);
+
+  const [allDiets, setAllDiets] = useState<AllDiets>({});
 
   const currentDiet = useMemo(() => {
     return allDiets[selectedPatient.id] || { Desayuno: [[]], Comida: [[]], Cena: [[]] };
   }, [allDiets, selectedPatient]);
 
+  useEffect(() => {
+    apiRequest<Array<Record<string, unknown>>>('/patients')
+      .then((items) => {
+        const mapped = items.map((item) => ({
+          id: String(item.idPaciente),
+          name: String(item.nombre ?? 'Sin nombre'),
+          weight: Number(item.pesoInicial ?? 0),
+          goalKcal: 2000,
+        }));
+        setPatients(mapped);
+        if (mapped[0]) setSelectedPatient(mapped[0]);
+      })
+      .catch((requestError: unknown) => {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : 'No se pudieron cargar los pacientes.',
+        );
+      })
+      .finally(() => setLoadingPatients(false));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPatient.id) return;
+
+    apiRequest<DietRecord[]>(`/patients/${selectedPatient.id}/diets`)
+      .then(setSavedDiets)
+      .catch((requestError: unknown) => {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : 'No se pudieron cargar las dietas.',
+        );
+      });
+  }, [selectedPatient.id]);
+
   // --- Lógica del Buscador ---
   useEffect(() => {
     const cleanQuery = query.trim().toLowerCase();
+    let cancelled = false;
     if (cleanQuery.length < 2) {
-      setResults([]);
-      setError(null);
-      setIsSearching(false);
-      return;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setResults([]);
+        setError(null);
+        setIsSearching(false);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
 
-    setIsSearching(true);
+    queueMicrotask(() => {
+      if (!cancelled) setIsSearching(true);
+    });
     const delayDebounceFn = setTimeout(() => {
       try {
         const filteredFoods = ESPANA_MOCK_FOODS.filter((food) =>
           food.label.toLowerCase().includes(cleanQuery)
         );
-        setResults(filteredFoods);
-        setError(null);
+        if (!cancelled) {
+          setResults(filteredFoods);
+          setError(null);
+        }
       } catch (err) {
-        setError('Error al procesar la lista de alimentos.');
+        if (!cancelled) setError('Error al procesar la lista de alimentos.');
       } finally {
-        setIsSearching(false);
+        if (!cancelled) setIsSearching(false);
       }
     }, 250);
 
-    return () => clearTimeout(delayDebounceFn);
+    return () => {
+      cancelled = true;
+      clearTimeout(delayDebounceFn);
+    };
   }, [query]);
 
   // --- Cálculos ---
@@ -137,15 +181,43 @@ export default function DietCreatorAdvanced() {
 
   // --- Acciones ---
   const handleSaveDiet = async () => {
+    if (!selectedPatient.id) {
+      setError('Selecciona un paciente antes de guardar la dieta.');
+      return;
+    }
+
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1800)); // Simulación API
-    setIsSaving(false);
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+    setError(null);
+    try {
+      const today = new Date();
+      const endDate = new Date(today);
+      endDate.setDate(endDate.getDate() + 7);
+      const diet = await apiRequest<DietRecord>(
+        `/patients/${selectedPatient.id}/diets`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            fechaInicio: today.toISOString(),
+            fechaFin: endDate.toISOString(),
+            descripcion: { meals: currentDiet },
+          }),
+        },
+      );
+      setSavedDiets((previous) => [diet, ...previous]);
+      setShowSuccess(true);
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'No se pudo guardar la dieta.',
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const addFoodToMeal = (food: FoodResult) => {
-    const newFood = { ...food, quantity: 100, id: `${food.id}-${Date.now()}` };
+    const newFood = { ...food, quantity: 100, id: `${food.id}-${activeFoods.length}` };
     setAllDiets(prev => {
       const patientDiet = prev[selectedPatient.id] || { Desayuno: [[]], Comida: [[]], Cena: [[]] };
       const currentMealOptions = [...patientDiet[selectedMeal]];
@@ -218,6 +290,11 @@ export default function DietCreatorAdvanced() {
         <PageHeader title="Planificador de Dietas" description={`Editando dieta para ${selectedPatient.name}`} icon={<i className="bi bi-egg-fried" />} />
 
         <div className="p-6 lg:p-10 max-w-[1600px] mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {error && (
+            <div className="lg:col-span-12 bg-destructive/10 border border-destructive/20 rounded-2xl px-5 py-4 text-sm font-bold text-destructive">
+              {error}
+            </div>
+          )}
           
           {/* PANEL IZQUIERDO: METRICAS */}
           <div className="lg:col-span-4 space-y-6">
@@ -225,14 +302,33 @@ export default function DietCreatorAdvanced() {
               <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-3 block px-1">Paciente</label>
               <select 
                 value={selectedPatient.id}
+                disabled={loadingPatients || patients.length === 0}
                 onChange={(e) => {
                   const found = patients.find(p => p.id === e.target.value);
                   if (found) { setSelectedPatient(found); setSelectedOptionIndex(0); }
                 }}
                 className="w-full bg-muted/50 border border-border rounded-2xl px-5 py-4 font-bold outline-none text-foreground"
               >
+                {patients.length === 0 && <option value="">No hay pacientes</option>}
                 {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
+            </div>
+
+            <div className="bg-card border border-border rounded-[2.5rem] p-8 shadow-sm">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] mb-4 text-muted-foreground">Dietas guardadas</h3>
+              {savedDiets.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Todavía no hay dietas para este paciente.</p>
+              ) : (
+                <div className="space-y-2">
+                  {savedDiets.map((diet) => (
+                    <div key={diet.idDieta} className="rounded-xl bg-muted/40 border border-border p-3">
+                      <p className="text-xs font-black text-foreground">
+                        {new Date(diet.fechaInicio).toLocaleDateString('es-ES')} — {new Date(diet.fechaFin).toLocaleDateString('es-ES')}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="bg-card border border-border rounded-[2.5rem] p-8 shadow-sm">

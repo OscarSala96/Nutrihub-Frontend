@@ -39,7 +39,6 @@ export default function ServicesPage() {
   return (
     <div className="bg-background text-foreground min-h-screen font-sans selection:bg-[#10b981]/30">
       
-      {/* HEADER SIMPLE */}
       <header className="max-w-7xl mx-auto px-6 lg:px-24 py-10 flex items-center justify-between border-b border-border/40">
         <Link href="/" className="text-xl font-extrabold tracking-tight">
           Nutri<span className="text-[#10b981]">Hub</span>
@@ -49,7 +48,6 @@ export default function ServicesPage() {
         </Link>
       </header>
 
-      {/* TITULAR PRINCIPAL */}
       <section className="max-w-4xl mx-auto text-center px-6 pt-20 pb-16">
         <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[#10b981] bg-[#10b981]/10 px-4 py-2 rounded-full">
           Prestaciones de la plataforma
@@ -60,7 +58,6 @@ export default function ServicesPage() {
         </h1>
       </section>
 
-      {/* GRILLA DE SERVICIOS - ESTILO BENTO REFINADO */}
       <section className="max-w-7xl mx-auto px-6 lg:px-24 pb-32">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {SERVICES_LIST.map((srv, index) => (
@@ -83,7 +80,6 @@ export default function ServicesPage() {
           ))}
         </div>
 
-        {/* CTA FINAL DE LA PÁGINA */}
         <div className="mt-20 rounded-[3rem] bg-[#020617] border border-white/10 p-12 text-center relative overflow-hidden shadow-2xl">
           <div className="absolute inset-0 bg-gradient-to-r from-[#10b981]/10 to-transparent pointer-events-none"></div>
           <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4 relative z-10">

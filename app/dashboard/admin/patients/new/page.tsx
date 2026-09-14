@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import PageHeader from '@/components/Pageheader';
+import { apiRequest } from '@/lib/api';
 
 const OBJECTIVES = [
   { value: 'Pérdida de Grasa',         icon: '🔥', desc: 'Reducción de masa grasa manteniendo músculo' },
@@ -33,10 +34,12 @@ export default function NewPatientPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const [form, setForm] = useState({
     // Paso 1
-    name: '', email: '', phone: '', age: '', gender: '',
+    name: '', email: '', password: '', phone: '', age: '', gender: '',
     // Paso 2
     weight: '', height: '', waist: '', chest: '', hip: '', arm: '', thigh: '', activity: '',
     // Paso 3
@@ -49,13 +52,36 @@ export default function NewPatientPage() {
     ? (parseFloat(form.weight) / Math.pow(parseFloat(form.height) / 100, 2)).toFixed(1)
     : null;
 
-  const handleSubmit = () => {
-    setSubmitted(true);
-    setTimeout(() => router.push('/dashboard/admin/patients'), 2000);
+  const handleSubmit = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      await apiRequest('/patients', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre: form.name,
+          edad: form.age ? Number(form.age) : undefined,
+          pesoInicial: Number(form.weight),
+          email: form.email,
+          password: form.password,
+          ...(form.phone ? { telefono: form.phone } : {}),
+        }),
+      });
+      setSubmitted(true);
+      router.push('/dashboard/admin/patients');
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'No se pudo crear el paciente.',
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const canNext = () => {
-    if (step === 0) return form.name && form.age && form.gender;
+    if (step === 0) return form.name && form.email && form.password && form.age && form.gender;
     if (step === 1) return form.weight && form.height && form.activity;
     if (step === 2) return form.objective;
     return true;
@@ -73,6 +99,12 @@ export default function NewPatientPage() {
         />
 
         <div className="p-6 lg:p-10 max-w-5xl mx-auto w-full space-y-6">
+
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-2xl px-5 py-4 text-sm font-bold text-destructive">
+              {error}
+            </div>
+          )}
 
           {/* Steps */}
           <div className="flex items-center gap-0">
@@ -112,6 +144,8 @@ export default function NewPatientPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
                     { key: 'name',  label: 'Nombre Completo', placeholder: 'Ej. Juan Pérez',         type: 'text',   col: 2 },
+                    { key: 'email', label: 'Email de acceso',  placeholder: 'paciente@ejemplo.com',   type: 'email',  col: 2 },
+                    { key: 'password', label: 'Contraseña temporal', placeholder: 'Mínimo 8 caracteres', type: 'password', col: 2 },
                     { key: 'age',   label: 'Edad',            placeholder: 'Ej. 30',                  type: 'number', col: 1 },
                   ].map(f => (
                     <div key={f.key} className={`space-y-2 ${f.col === 2 ? 'sm:col-span-2' : ''}`}>
@@ -119,7 +153,7 @@ export default function NewPatientPage() {
                       <input
                         type={f.type}
                         placeholder={f.placeholder}
-                        value={(form as any)[f.key]}
+                        value={form[f.key as keyof typeof form]}
                         onChange={e => set(f.key, e.target.value)}
                         className="w-full bg-muted/50 border border-border rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-[#10b981]/30 focus:border-[#10b981] transition-all font-medium text-foreground"
                       />
@@ -173,7 +207,7 @@ export default function NewPatientPage() {
                           type="number"
                           step="0.1"
                           placeholder={m.placeholder}
-                          value={(form as any)[m.key]}
+                          value={form[m.key as keyof typeof form]}
                           onChange={e => set(m.key, e.target.value)}
                           className="w-full bg-muted/50 border border-border rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-[#10b981]/30 focus:border-[#10b981] transition-all font-black text-foreground pr-12"
                         />
@@ -342,10 +376,10 @@ export default function NewPatientPage() {
             ) : (
               <button
                 onClick={handleSubmit}
-                disabled={submitted}
+                disabled={submitted || loading}
                 className="flex-1 py-4 bg-[#10b981] hover:bg-[#059669] text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-[#10b981]/20 active:scale-[0.98] flex items-center justify-center gap-2">
-                <i className="bi bi-person-check-fill"></i>
-                Crear Perfil Clínico
+                {loading ? <i className="bi bi-arrow-repeat animate-spin"></i> : <i className="bi bi-person-check-fill"></i>}
+                {loading ? 'Guardando...' : 'Crear Perfil Clínico'}
               </button>
             )}
           </div>

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import PageHeader from '@/components/Pageheader';
+import { apiRequest } from '@/lib/api';
 
 interface Patient {
   id: string;
@@ -18,24 +19,6 @@ interface Patient {
   hasNewProgress?: boolean;
   progressDate?: string;
 }
-
-const MOCK_PATIENTS: Patient[] = [
-  { id: '1',  name: 'Juan Pérez',      email: 'juan.perez@email.com',  phone: '+34 611 223 344', age: 34, objective: 'Pérdida de Grasa',         lastReview: 'Hoy, 07:15',      status: 'Activo',    hasNewProgress: true,  progressDate: 'Hoy, 07:15' },
-  { id: '2',  name: 'María García',    email: 'maria.g@email.com',     phone: '+34 622 334 455', age: 28, objective: 'Recomposición Corporal',    lastReview: 'Ayer, 09:15',      status: 'Activo',   hasNewProgress: false },
-  { id: '3',  name: 'Carlos Pérez',    email: 'carlos.ruiz@email.com', phone: '+34 633 445 566', age: 42, objective: 'Ganancia de Masa Muscular', lastReview: 'Hoy, 9:50',      status: 'Activo', hasNewProgress: true,  progressDate: 'Hoy, 09:50' },
-  { id: '4',  name: 'Óscar Sala',      email: 'oscar.sala@email.com',  phone: '+34 644 556 677', age: 31, objective: 'Rendimiento Deportivo',     lastReview: 'Ayer, 18:20',     status: 'Activo',   hasNewProgress: false },
-  { id: '5',  name: 'Roberto Jara',    email: 'roberto.j@email.com',   phone: '+34 655 667 788', age: 25, objective: 'Salud y Bienestar',         lastReview: 'Hace 2 días',     status: 'Activo', hasNewProgress: false },
-  { id: '6',  name: 'Ana Belén',       email: 'ana.belen@email.com',   phone: '+34 666 778 899', age: 39, objective: 'Pérdida de Grasa',         lastReview: 'Hace 1 semana',   status: 'Inactivo', hasNewProgress: false },
-  { id: '7',  name: 'Sergio Torres',   email: 'sergio.t@email.com',    phone: '+34 677 889 900', age: 29, objective: 'Ganancia de Masa Muscular', lastReview: 'Hoy, 12:30',      status: 'Activo',   hasNewProgress: true,  progressDate: 'Hoy, 12:30' },
-  { id: '8',  name: 'Lucía Fernández', email: 'laura.mendez@email.com',phone: '+34 688 990 011', age: 35, objective: 'Pérdida de Grasa',         lastReview: 'Ayer, 11:15',     status: 'Activo',   hasNewProgress: false },
-  { id: '9',  name: 'Diego Delgado',   email: 'diego.d@email.com',     phone: '+34 699 001 122', age: 46, objective: 'Salud y Bienestar',         lastReview: 'Hace 3 días',     status: 'Activo', hasNewProgress: false },
-  { id: '10', name: 'Clara Ortiz',     email: 'clara.ortiz@email.com', phone: '+34 600 112 233', age: 24, objective: 'Recomposición Corporal',    lastReview: 'Hoy, 07:40',      status: 'Activo',   hasNewProgress: true,  progressDate: 'Hoy, 07:40' },
-  { id: '11', name: 'Javier Marín',    email: 'javi.marin@email.com',  phone: '+34 611 334 455', age: 33, objective: 'Rendimiento Deportivo',     lastReview: 'Ayer, 09:30',     status: 'Activo',   hasNewProgress: false },
-  { id: '12', name: 'Patricia Silva',  email: 'patricia.s@email.com',  phone: '+34 622 445 566', age: 51, objective: 'Salud y Bienestar',         lastReview: 'Ayer, 17:00',     status: 'Activo',   hasNewProgress: false },
-  { id: '13', name: 'Marcos Ruiz',     email: 'manuel.soto@email.com', phone: '+34 633 556 677', age: 38, objective: 'Pérdida de Grasa',         lastReview: 'Hace 2 semanas',  status: 'Inactivo', hasNewProgress: false },
-  { id: '14', name: 'Marta Vicente',   email: 'marta.v@email.com',     phone: '+34 644 667 788', age: 27, objective: 'Ganancia de Masa Muscular', lastReview: 'Hace 4 días',     status: 'Activo', hasNewProgress: false },
-  { id: '15', name: 'Alejandro Ramos', email: 'alex.ramos@email.com',  phone: '+34 655 778 899', age: 30, objective: 'Recomposición Corporal',    lastReview: 'Hoy, 10:55',      status: 'Activo',   hasNewProgress: true,  progressDate: 'Hoy, 10:55' },
-];
 
 const PLAN_COLORS: Record<string, string> = {
   Premium:     'bg-indigo-500/10 text-indigo-500',
@@ -61,10 +44,41 @@ const AVATAR_COLORS = [
 ];
 
 export default function PatientsPage() {
-  const [patients]      = useState<Patient[]>(MOCK_PATIENTS);
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm]     = useState('');
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [planFilter, setPlanFilter]     = useState('Todos');
+
+  useEffect(() => {
+    apiRequest<Array<Record<string, unknown>>>('/patients')
+      .then((items) => {
+        setPatients(
+          items.map((item) => ({
+            id: String(item.idPaciente),
+            name: String(item.nombre ?? 'Sin nombre'),
+            email: String(item.email ?? ''),
+            phone: String(item.telefono ?? ''),
+            age: Number(item.edad ?? 0),
+            objective: 'Sin objetivo definido',
+            lastReview: item.updatedAt
+              ? new Date(String(item.updatedAt)).toLocaleDateString('es-ES')
+              : 'Sin registros',
+            status: 'Activo',
+            hasNewProgress: false,
+          })),
+        );
+      })
+      .catch((requestError: unknown) => {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : 'No se pudieron cargar los pacientes.',
+        );
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const newProgressCount = patients.filter(p => p.hasNewProgress).length;
 
@@ -87,6 +101,17 @@ export default function PatientsPage() {
         />
 
         <div className="p-6 lg:p-10 flex-1 space-y-6 max-w-[1400px] mx-auto w-full">
+
+          {loading && (
+            <div className="bg-card border border-border rounded-2xl px-5 py-4 text-sm text-muted-foreground">
+              Cargando pacientes...
+            </div>
+          )}
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-2xl px-5 py-4 text-sm font-bold text-destructive">
+              {error}
+            </div>
+          )}
 
           {/* Banner nuevos registros */}
           {newProgressCount > 0 && (

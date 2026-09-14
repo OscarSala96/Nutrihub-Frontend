@@ -1,5 +1,15 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Configuración del API
+
+El frontend usa el backend de NutriHub para autenticación, pacientes, dietas y
+progreso. Define `NEXT_PUBLIC_API_URL` en `.env.local`; por defecto apunta a
+`http://localhost:3000`.
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:3000
+```
+
 ## Getting Started
 
 First, run the development server:

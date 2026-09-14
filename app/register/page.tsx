@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { apiRequest, saveAuthSession, type AuthResponse } from '@/lib/api';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -15,7 +16,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [colegiado, setColegiado] = useState('');
   
-  // Datos de pago simulados
+  // Datos de pago
   const [cardName, setCardName] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
@@ -23,6 +24,7 @@ export default function RegisterPage() {
   
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
 
   const handleNextStep = (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,27 +34,41 @@ export default function RegisterPage() {
   const handleRegisterAndPay = (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError('');
 
-    // Simulamos la validación del pago y el guardado en base de datos
-    setTimeout(() => {
-      const newUser = {
-        id: `uuid-nutri-${Date.now()}`,
-        nombre,
-        email,
-        role: 'NUTRICIONISTA',
-        colegiado,
-        plan: selectedPlan,
-        status: 'ACTIVE'
-      };
-      
-      localStorage.setItem('user', JSON.stringify(newUser));
-      setLoading(false);
-      setSuccess(true);
-      
-      setTimeout(() => {
-        router.push('/dashboard/admin');
-      }, 1500);
-    }, 2000); // Damos un poco más de margen para simular el "procesando pago"
+    apiRequest<AuthResponse>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, nombre }),
+    })
+      .then((auth) => {
+        const user = {
+          ...(auth.user ?? {}),
+          nombre,
+          email,
+          role: 'NUTRICIONISTA' as const,
+          colegiado,
+          plan: selectedPlan,
+          status: 'ACTIVE',
+        };
+        if (auth.session?.access_token) {
+          saveAuthSession(auth, user);
+          setSuccess(true);
+          router.push('/dashboard/admin');
+        } else {
+          setSuccess(false);
+          setError(
+            'Cuenta creada. Revisa tu correo para confirmar la cuenta y después inicia sesión.',
+          );
+        }
+      })
+      .catch((requestError: unknown) => {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : 'No se pudo crear la cuenta.',
+        );
+      })
+      .finally(() => setLoading(false));
   };
 
   return (
@@ -94,7 +110,12 @@ export default function RegisterPage() {
             {success && (
               <div className="rounded-2xl px-5 py-4 mb-6 flex items-center gap-3 bg-[#10b981]/10 border border-[#10b981]/20 animate-in zoom-in-95">
                 <i className="bi bi-shield-check text-[#10b981] text-lg"></i>
-                <p className="text-[#10b981] text-sm font-bold">¡Pago procesado y cuenta activada! Entrando...</p>
+                <p className="text-[#10b981] text-sm font-bold">¡Cuenta creada correctamente! Entrando...</p>
+              </div>
+            )}
+            {error && (
+              <div className="rounded-2xl px-5 py-4 mb-6 bg-destructive/10 border border-destructive/20 text-destructive text-sm font-bold">
+                {error}
               </div>
             )}
 
@@ -131,7 +152,8 @@ export default function RegisterPage() {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Mínimo 6 caracteres"
+                    placeholder="Mínimo 8 caracteres"
+                    minLength={8}
                     required
                     className="w-full bg-card border border-input rounded-2xl px-5 py-3.5 text-sm focus:ring-2 focus:ring-[#10b981]/30 focus:border-[#10b981] transition-all shadow-sm"
                   />
