@@ -1,6 +1,6 @@
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') ||
-  'https://nutrihub-backend-d37er2ft8-oscarsala96s-projects.vercel.app/';
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:3000';
+  //'https://nutrihub-backend-d37er2ft8-oscarsala96s-projects.vercel.app/';
 
 const TOKEN_KEYS = ['supabase_access_token', 'access_token', 'token'];
 
